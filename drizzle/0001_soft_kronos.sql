@@ -1,0 +1,1 @@
+ALTER TABLE "knowledge_graph" ADD CONSTRAINT "knowledge_graph_entity_id_unique" UNIQUE("entity_id");

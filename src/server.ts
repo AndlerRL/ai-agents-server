@@ -1,7 +1,7 @@
 /**
- * AI Agents Server - Proper Integration
+ * AI Agents Server - Proper Integration with RAG System
  * Using Bun's native serve with Elysia routes integration
- * Includes client build system like your example
+ * Includes client build system and comprehensive RAG capabilities
  */
 
 import { existsSync, readFileSync } from 'node:fs'
@@ -16,6 +16,8 @@ import { buildClient } from './lib/build-client'
 import { createSwaggerConfig } from './lib/swagger-config'
 import { createAIAgentsState } from './core/elysia-state'
 import type { ServerConfig } from './core/types'
+import { bootstrapRagSystemWithValidation } from './rag'
+import type { MainRagService } from './rag'
 
 // ============================================================================
 // Server Configuration
@@ -71,11 +73,22 @@ const app = new Elysia()
   .use(createAIAgentsState(config))
   
   // Dashboard - Main page with API statistics
-  .get('/', ({ getServerStats }: any) => {
+  .get('/', async ({ getServerStats }: any) => {
     const stats = getServerStats()
+    
+    // Get RAG system health if available
+    let ragHealth = null
+    if (ragService) {
+      try {
+        ragHealth = await ragService.healthCheck()
+      } catch (error) {
+        ragHealth = { status: 'unhealthy', error: 'Health check failed' }
+      }
+    }
+    
     return {
       title: 'AI Agents Server Dashboard',
-      description: 'Real-time API usage statistics and server monitoring',
+      description: 'Real-time API usage statistics and server monitoring with RAG capabilities',
       version: '1.0.0',
       uptime: Math.floor(stats.uptime || 0),
       statistics: {
@@ -90,6 +103,8 @@ const app = new Elysia()
       health: {
         status: 'healthy',
         openaiEnabled: stats.features?.openaiEnabled || false,
+        ragEnabled: !!ragService,
+        ragStatus: ragHealth?.status || 'disabled',
         debugMode: stats.features?.debugMode || false,
         lastUpdate: new Date().toISOString()
       },
@@ -98,33 +113,60 @@ const app = new Elysia()
         docs: '/docs',
         openai: '/v1/openai/*',
         ai: '/v1/ai/*',
+        rag: '/v1/rag/*',
         webhooks: '/webhooks/ws'
+      },
+      ragSystem: ragService ? {
+        enabled: true,
+        status: ragHealth?.status || 'unknown',
+        strategies: [
+          'retrieve_read',
+          'hybrid', 
+          'two_stage_rerank',
+          'fusion_in_decoder',
+          'augmented_reranking',
+          'federated',
+          'graph_rag',
+          'adaptive'
+        ]
+      } : {
+        enabled: false,
+        reason: 'RAG system not initialized - check DATABASE_URL and dependencies'
       }
     }
   }, {
     detail: {
       tags: ['Introduction'],
       summary: 'Server dashboard',
-      description: 'Real-time dashboard with API usage statistics, server health, and endpoint information'
+      description: 'Real-time dashboard with API usage statistics, server health, RAG system status, and endpoint information'
     }
   })
   
   // API Information endpoint
   .get('/api', () => ({
     title: 'AI Agents Server API',
-    description: 'Sophisticated agentic AI server using ElysiaJS, OpenAI, and Vercel AI SDK',
+    description: 'Sophisticated agentic AI server using ElysiaJS, OpenAI, Vercel AI SDK, and RAG systems',
     version: '1.0.0',
     endpoints: {
       openai: '/v1/openai/*',
       ai: '/v1/ai/*',
+      rag: '/v1/rag/*',
       webhooks: '/webhooks/ws',
       docs: '/docs'
-    }
+    },
+    capabilities: [
+      'OpenAI agent integration',
+      'Vercel AI SDK streaming',
+      'RAG with multiple strategies',
+      'Real-time WebSocket events',
+      'pgvector database support',
+      'Adaptive retrieval granularity'
+    ]
   }), {
     detail: {
       tags: ['Introduction'],
       summary: 'API information',
-      description: 'Get API server information and available endpoints'
+      description: 'Get API server information, available endpoints, and system capabilities'
     }
   })
   
@@ -302,6 +344,311 @@ const app = new Elysia()
   )
 
 // ============================================================================
+// RAG System Integration
+// ============================================================================
+
+// Initialize RAG system
+let ragService: MainRagService
+
+// Add RAG routes
+app.group('/v1/rag', (app) => app
+  .get('/', () => ({
+    title: 'RAG System API',
+    description: 'Retrieval-Augmented Generation with multiple strategies and pgvector database',
+    version: '1.0.0',
+    endpoints: {
+      retrieve: '/v1/rag/retrieve',
+      documents: '/v1/rag/documents',
+      health: '/v1/rag/health',
+      metrics: '/v1/rag/metrics'
+    },
+    strategies: [
+      'retrieve_read',
+      'hybrid',
+      'two_stage_rerank', 
+      'fusion_in_decoder',
+      'augmented_reranking',
+      'federated',
+      'graph_rag',
+      'adaptive'
+    ]
+  }), {
+    detail: {
+      tags: ['RAG System'],
+      summary: 'RAG API information',
+      description: 'Get RAG system information and available endpoints'
+    }
+  })
+
+  // Main retrieval endpoint
+  .post('/retrieve', async ({ body }: any) => {
+    try {
+      if (!ragService) {
+        return {
+          success: false,
+          error: 'RAG system not initialized',
+          message: 'RAG service is not available'
+        }
+      }
+
+      const { query, strategy, topK, granularity, includeMetadata, filters } = body
+      
+      if (!query) {
+        return {
+          success: false,
+          error: 'Missing query',
+          message: 'Query text is required'
+        }
+      }
+
+      const ragQuery = {
+        text: query,
+        strategy,
+        topK: topK || 5,
+        granularity: granularity || 'coarse',
+        includeMetadata: includeMetadata || false,
+        filters,
+        queryId: crypto.randomUUID(),
+        clientId: 'web-client',
+        metadata: {
+          requestId: crypto.randomUUID(),
+          timestamp: new Date().toISOString()
+        }
+      }
+
+      const response = await ragService.retrieve(ragQuery)
+
+      return {
+        success: true,
+        data: response
+      }
+    } catch (error) {
+      console.error('RAG retrieval error:', error)
+      return {
+        success: false,
+        error: 'RAG retrieval failed',
+        message: String(error)
+      }
+    }
+  }, {
+    detail: {
+      tags: ['RAG System'],
+      summary: 'Retrieve documents',
+      description: 'Retrieve relevant documents using RAG system with various strategies',
+      body: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Search query text' },
+          strategy: { 
+            type: 'string', 
+            enum: ['retrieve_read', 'hybrid', 'two_stage_rerank', 'fusion_in_decoder', 'augmented_reranking', 'federated', 'graph_rag', 'adaptive'],
+            description: 'Retrieval strategy to use'
+          },
+          topK: { type: 'integer', minimum: 1, maximum: 50, default: 5, description: 'Number of results to return' },
+          granularity: { type: 'string', enum: ['coarse', 'fine', 'adaptive'], default: 'coarse', description: 'Chunk granularity' },
+          includeMetadata: { type: 'boolean', default: false, description: 'Include additional metadata' },
+          filters: {
+            type: 'object',
+            properties: {
+              dateRange: {
+                type: 'object',
+                properties: {
+                  start: { type: 'string', format: 'date-time' },
+                  end: { type: 'string', format: 'date-time' }
+                }
+              },
+              sources: { type: 'array', items: { type: 'string' } },
+              contentTypes: { type: 'array', items: { type: 'string' } },
+              languages: { type: 'array', items: { type: 'string' } }
+            }
+          }
+        },
+        required: ['query']
+      }
+    }
+  })
+
+  // Adaptive retrieval
+  .post('/adaptive', async ({ body }: any) => {
+    try {
+      if (!ragService) {
+        return {
+          success: false,
+          error: 'RAG system not initialized'
+        }
+      }
+
+      const { query, topK, includeMetadata } = body
+      
+      const ragQuery = {
+        text: query,
+        topK: topK || 5,
+        granularity: 'adaptive' as const,
+        includeMetadata: includeMetadata || false,
+        queryId: crypto.randomUUID(),
+        clientId: 'web-client'
+      }
+
+      const response = await ragService.adaptiveRetrieve(ragQuery)
+
+      return {
+        success: true,
+        data: response,
+        explanation: 'Used adaptive strategy selection based on query characteristics'
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: 'Adaptive retrieval failed',
+        message: String(error)
+      }
+    }
+  }, {
+    detail: {
+      tags: ['RAG System'],
+      summary: 'Adaptive retrieval',
+      description: 'Automatically select optimal retrieval strategy based on query characteristics'
+    }
+  })
+
+  // Document management
+  .group('/documents', (app) => app
+    .post('/', async ({ body }: any) => {
+      try {
+        if (!ragService) {
+          return { success: false, error: 'RAG system not initialized' }
+        }
+
+        const { content, metadata } = body
+        const documentId = await ragService.addDocument(content, metadata)
+
+        return {
+          success: true,
+          data: { documentId },
+          message: 'Document added successfully'
+        }
+      } catch (error) {
+        return {
+          success: false,
+          error: 'Failed to add document',
+          message: String(error)
+        }
+      }
+    }, {
+      detail: {
+        tags: ['RAG System'],
+        summary: 'Add document',
+        description: 'Add a new document to the RAG system'
+      }
+    })
+
+    .post('/batch', async ({ body }: any) => {
+      try {
+        if (!ragService) {
+          return { success: false, error: 'RAG system not initialized' }
+        }
+
+        const { documents } = body
+        const documentIds = await ragService.addDocuments(documents)
+
+        return {
+          success: true,
+          data: { documentIds },
+          message: `Added ${documentIds.length} documents`
+        }
+      } catch (error) {
+        return {
+          success: false,
+          error: 'Failed to add documents',
+          message: String(error)
+        }
+      }
+    })
+
+    .delete('/:id', async ({ params }: any) => {
+      try {
+        if (!ragService) {
+          return { success: false, error: 'RAG system not initialized' }
+        }
+
+        await ragService.deleteDocument(params.id)
+
+        return {
+          success: true,
+          message: 'Document deleted successfully'
+        }
+      } catch (error) {
+        return {
+          success: false,
+          error: 'Failed to delete document',
+          message: String(error)
+        }
+      }
+    })
+  )
+
+  // Health and metrics
+  .get('/health', async () => {
+    try {
+      if (!ragService) {
+        return {
+          status: 'unhealthy',
+          error: 'RAG system not initialized'
+        }
+      }
+
+      const health = await ragService.healthCheck()
+      return health
+    } catch (error) {
+      return {
+        status: 'unhealthy',
+        error: 'Health check failed',
+        message: String(error)
+      }
+    }
+  }, {
+    detail: {
+      tags: ['RAG System'],
+      summary: 'Health check',
+      description: 'Check RAG system health status'
+    }
+  })
+
+  .get('/metrics', async () => {
+    try {
+      if (!ragService) {
+        return { error: 'RAG system not initialized' }
+      }
+
+      const [systemMetrics, indexStats] = await Promise.all([
+        ragService.getSystemMetrics(),
+        ragService.getIndexStats()
+      ])
+
+      return {
+        success: true,
+        data: {
+          system: systemMetrics,
+          index: indexStats
+        }
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: 'Failed to get metrics',
+        message: String(error)
+      }
+    }
+  }, {
+    detail: {
+      tags: ['RAG System'],
+      summary: 'System metrics',
+      description: 'Get RAG system performance metrics and statistics'
+    }
+  })
+)
+
+// ============================================================================
 // WebSocket Interface
 // ============================================================================
 
@@ -332,6 +679,23 @@ async function startServer() {
       console.error('❌ Client build failed:', error)
       process.exit(1)
     }
+  }
+
+  // Initialize RAG System
+  try {
+    console.log('🧠 Initializing RAG system...')
+    ragService = await bootstrapRagSystemWithValidation({
+      databaseUrl: process.env.DATABASE_URL,
+      embeddingModel: 'all-MiniLM-L6-v2',
+      defaultStrategy: 'retrieve_read',
+      defaultTopK: 5,
+      scoreThreshold: 0.5
+    })
+    console.log('✅ RAG system initialized successfully')
+  } catch (error) {
+    console.warn('⚠️  RAG system initialization failed:', error)
+    console.warn('🔧 RAG endpoints will be disabled. Check DATABASE_URL and dependencies.')
+    // Continue without RAG system - server can still function
   }
 
   const serverOptions = {
@@ -476,8 +840,8 @@ async function startServer() {
   
   console.log('🚀 AI Agents Server is starting up...')
   console.log(`📡 Server running at http://localhost:${server.port}`)
-  console.log(`� Dashboard available at http://localhost:${server.port}/`)
-  console.log(`�📚 API documentation available at http://localhost:${server.port}/docs`)
+  console.log(`🏠 Dashboard available at http://localhost:${server.port}/`)
+  console.log(`📚 API documentation available at http://localhost:${server.port}/docs`)
   console.log(`🔗 WebSocket endpoint: ws://localhost:${server.port}/webhooks/ws`)
   console.log(`🌐 Accessible externally at http://<your-ip>:${server.port}/`)
   
@@ -485,6 +849,13 @@ async function startServer() {
     console.log('✅ OpenAI integration enabled')
   } else {
     console.log('⚠️  OpenAI integration disabled (no API key provided)')
+  }
+  
+  if (ragService) {
+    console.log('✅ RAG system enabled with multiple retrieval strategies')
+    console.log(`🧠 RAG endpoints available at http://localhost:${server.port}/v1/rag/*`)
+  } else {
+    console.log('⚠️  RAG system disabled (initialization failed)')
   }
   
   console.log('🟢 Server ready to accept connections!')

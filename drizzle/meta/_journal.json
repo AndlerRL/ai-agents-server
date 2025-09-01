@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1756708282625,
+      "tag": "0000_past_thundra",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1756712734681,
+      "tag": "0001_soft_kronos",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1756713138738,
+      "tag": "0002_lucky_karnak",
+      "breakpoints": true
+    }
+  ]
+}

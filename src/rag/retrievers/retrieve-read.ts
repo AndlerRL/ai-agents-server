@@ -59,9 +59,13 @@ export class RetrieveReadRetriever extends BaseRetriever {
       
       // Step 1: Generate query embedding
       const embeddingStart = Date.now()
-      const queryEmbedding = await this.embeddingProvider.generateQueryEmbedding(query.text)
+      const queryEmbedding = await this.embeddingProvider.generateQueryEmbedding?.(query.text)
       const embeddingLatency = Date.now() - embeddingStart
-      
+
+      if (!queryEmbedding) {
+        throw new Error('Failed to generate query embedding')
+      }
+
       // Step 2: Retrieve similar chunks
       const retrievalStart = Date.now()
       const results = await this.retrieveSimilarChunks(
@@ -374,6 +378,7 @@ export class RetrieveReadRetriever extends BaseRetriever {
   private async logRetrieval(queryId: string, query: RagQuery, response: RagResponse): Promise<void> {
     try {
       await this.database.insert(retrievalSessions).values({
+        // @ts-ignore
         id: queryId,
         query: query.text,
         queryHash: this.hashQuery(query.text),

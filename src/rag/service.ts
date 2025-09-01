@@ -332,7 +332,7 @@ export class MainRagService implements RagService {
         contentHash,
         source: metadata?.source,
         metadata: metadata || {},
-        embeddingModel: this.embeddingProvider.name,
+        embeddingModel: this.embeddingProvider.name as any,
         embeddingModelVersion: this.embeddingProvider.model,
         indexedAt: new Date()
       })

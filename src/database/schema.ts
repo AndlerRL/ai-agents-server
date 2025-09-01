@@ -2,10 +2,21 @@
  * Database Schema for RAG Systems with pgvector
  * Supports multiple retrieval strategies and adaptive granularity
  * Using snake_case for database columns, camelCase for TypeScript
+ * Supports dual-database operation with Neo4j integration
  */
 
-import { pgTable, uuid, text, timestamp, jsonb, integer, real, index, customType, pgEnum } from 'drizzle-orm/pg-core'
+import { pgTable, uuid, text, timestamp, jsonb, integer, real, index, customType, pgEnum, pgSchema } from 'drizzle-orm/pg-core'
 import { relations } from 'drizzle-orm'
+
+// ============================================================================
+// Database Schemas for Multi-Database Support
+// ============================================================================
+
+// Public schema - traditional relational data with basic graph support
+export const publicSchema = pgSchema('public')
+
+// Graph public schema - optimized for graph operations and Neo4j sync
+export const graphPublicSchema = pgSchema('graph_public')
 
 // ============================================================================
 // Enums for Predictable Values
@@ -99,10 +110,10 @@ const vector = customType<{ data: number[]; driverData: string; config?: { dimen
 })
 
 // ============================================================================
-// Core Document Management
+// Core Document Management (Public Schema - Basic Graph Support)
 // ============================================================================
 
-export const documents = pgTable('documents', {
+export const documents = publicSchema.table('documents', {
   id: uuid('id').primaryKey().defaultRandom(),
   title: text('title').notNull(),
   content: text('content').notNull(),
@@ -114,6 +125,11 @@ export const documents = pgTable('documents', {
   embeddingModel: embeddingModelEnum('embedding_model').notNull(),
   embeddingModelVersion: text('embedding_model_version').notNull(),
   
+  // Neo4j sync fields
+  neo4jNodeId: text('neo4j_node_id'), // Reference to Neo4j node
+  syncedToNeo4j: timestamp('synced_to_neo4j'),
+  useGraphDatabase: integer('use_graph_database').default(0), // 0 = false, 1 = true
+  
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
   indexedAt: timestamp('indexed_at'),
@@ -121,13 +137,15 @@ export const documents = pgTable('documents', {
   index('documents_source_idx').on(table.source),
   index('documents_embedding_model_idx').on(table.embeddingModel),
   index('documents_content_hash_idx').on(table.contentHash),
+  index('documents_neo4j_node_id_idx').on(table.neo4jNodeId),
+  index('documents_use_graph_idx').on(table.useGraphDatabase),
 ]))
 
 // ============================================================================
-// Adaptive Retrieval Granularity - Dual Resolution Chunks
+// Adaptive Retrieval Granularity - Dual Resolution Chunks (Public Schema)
 // ============================================================================
 
-export const documentChunks = pgTable('document_chunks', {
+export const documentChunks = publicSchema.table('document_chunks', {
   id: uuid('id').primaryKey().defaultRandom(),
   documentId: uuid('document_id').references(() => documents.id, { onDelete: 'cascade' }).notNull(),
   
@@ -147,6 +165,11 @@ export const documentChunks = pgTable('document_chunks', {
   // Sparse retrieval support (BM25-style)
   keywordVector: jsonb('keyword_vector').$type<Record<string, number>>().default({}),
   
+  // Neo4j sync fields
+  neo4jNodeId: text('neo4j_node_id'), // Reference to Neo4j node
+  syncedToNeo4j: timestamp('synced_to_neo4j'),
+  useGraphDatabase: integer('use_graph_database').default(0), // 0 = false, 1 = true
+  
   // Metadata for chunk-level information
   metadata: jsonb('metadata').$type<{
     parentChunkId?: string
@@ -164,13 +187,15 @@ export const documentChunks = pgTable('document_chunks', {
   index('chunks_granularity_idx').on(table.granularity),
   index('chunks_embedding_idx').using('hnsw', table.embedding.op('vector_cosine_ops')),
   index('chunks_embedding_ivf_idx').using('ivfflat', table.embedding.op('vector_cosine_ops')),
+  index('chunks_neo4j_node_id_idx').on(table.neo4jNodeId),
+  index('chunks_use_graph_idx').on(table.useGraphDatabase),
 ]))
 
 // ============================================================================
-// Graph RAG Support
+// Knowledge Graph (Public Schema) - Traditional graph support
 // ============================================================================
 
-export const knowledgeGraph = pgTable('knowledge_graph', {
+export const knowledgeGraph = publicSchema.table('knowledge_graph', {
   id: uuid('id').primaryKey().defaultRandom(),
   
   // Entity information
@@ -180,6 +205,11 @@ export const knowledgeGraph = pgTable('knowledge_graph', {
   
   // Vector representation of entity
   embedding: vector('embedding', { dimensions: 1536 }),
+  
+  // Neo4j synchronization
+  neo4jNodeId: text('neo4j_node_id').unique(),
+  lastSyncedToNeo4j: timestamp('last_synced_to_neo4j'),
+  neo4jVersion: integer('neo4j_version').default(0),
   
   // Graph metadata
   metadata: jsonb('metadata').$type<{
@@ -195,9 +225,10 @@ export const knowledgeGraph = pgTable('knowledge_graph', {
   index('kg_entity_idx').on(table.entityId),
   index('kg_type_idx').on(table.entityType),
   index('kg_embedding_idx').using('hnsw', table.embedding.op('vector_cosine_ops')),
+  index('kg_neo4j_node_idx').on(table.neo4jNodeId),
 ]))
 
-export const graphRelations = pgTable('knowledge_graph_relations', {
+export const graphRelations = publicSchema.table('knowledge_graph_relations', {
   id: uuid('id').primaryKey().defaultRandom(),
   
   sourceEntityId: text('source_entity_id').references(() => knowledgeGraph.entityId, { onDelete: 'cascade' }).notNull(),
@@ -208,6 +239,11 @@ export const graphRelations = pgTable('knowledge_graph_relations', {
   
   // Support for relation embeddings
   relationEmbedding: vector('relation_embedding', { dimensions: 1536 }),
+  
+  // Neo4j synchronization
+  neo4jRelationshipId: text('neo4j_relationship_id').unique(),
+  lastSyncedToNeo4j: timestamp('last_synced_to_neo4j'),
+  neo4jVersion: integer('neo4j_version').default(0),
   
   metadata: jsonb('metadata').$type<{
     confidence?: number
@@ -221,13 +257,254 @@ export const graphRelations = pgTable('knowledge_graph_relations', {
   index('kg_relations_source_idx').on(table.sourceEntityId),
   index('kg_relations_target_idx').on(table.targetEntityId),
   index('kg_relations_type_idx').on(table.relationshipType),
+  index('kg_relations_neo4j_idx').on(table.neo4jRelationshipId),
 ]))
 
 // ============================================================================
-// Retrieval Analytics and Optimization
+// Graph Public Schema - Optimized for Neo4j Integration
 // ============================================================================
 
-export const retrievalSessions = pgTable('retrieval_sessions', {
+// Graph-optimized documents table
+export const graphDocuments = graphPublicSchema.table('documents', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  title: text('title').notNull(),
+  content: text('content').notNull(),
+  contentHash: text('content_hash').notNull().unique(),
+  source: text('source'),
+  
+  // Enhanced metadata for graph operations
+  metadata: jsonb('metadata').$type<{
+    sourceType?: 'web' | 'file' | 'api' | 'manual'
+    domain?: string
+    language?: string
+    authorId?: string
+    organizationId?: string
+    projectId?: string
+    tags?: string[]
+    // Graph analytics
+    centralityScore?: number
+    communityId?: string
+    pageRank?: number
+    // Citation data
+    citationCount?: number
+    citedByCount?: number
+    [key: string]: any
+  }>().default({}),
+  
+  // Embedding model tracking
+  embeddingModel: embeddingModelEnum('embedding_model').notNull(),
+  embeddingModelVersion: text('embedding_model_version').notNull(),
+  
+  // Neo4j synchronization
+  neo4jNodeId: text('neo4j_node_id').notNull().unique(),
+  lastSyncedToNeo4j: timestamp('last_synced_to_neo4j').defaultNow(),
+  neo4jVersion: integer('neo4j_version').default(1),
+  
+  // Graph relationship counts (denormalized for performance)
+  outgoingRelationshipCount: integer('outgoing_relationship_count').default(0),
+  incomingRelationshipCount: integer('incoming_relationship_count').default(0),
+  
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  indexedAt: timestamp('indexed_at'),
+}, (table) => ([
+  index('graph_docs_neo4j_node_id_idx').on(table.neo4jNodeId),
+  index('graph_docs_content_hash_idx').on(table.contentHash),
+  index('graph_docs_domain_idx').on(table.metadata),
+  index('graph_docs_centrality_idx').on(table.metadata),
+  index('graph_docs_sync_idx').on(table.lastSyncedToNeo4j),
+]))
+
+// Graph-optimized chunks table
+export const graphChunks = graphPublicSchema.table('chunks', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  documentId: uuid('document_id').references(() => graphDocuments.id, { onDelete: 'cascade' }).notNull(),
+  
+  // Content and positioning
+  content: text('content').notNull(),
+  chunkIndex: integer('chunk_index').notNull(),
+  startOffset: integer('start_offset').notNull(),
+  endOffset: integer('end_offset').notNull(),
+  
+  // Adaptive granularity support
+  granularity: granularityEnum('granularity').notNull(),
+  chunkSize: integer('chunk_size').notNull(),
+  
+  // Vector embeddings (mandatory for graph chunks)
+  embedding: vector('embedding', { dimensions: 1536 }).notNull(),
+  
+  // Enhanced metadata for graph context
+  metadata: jsonb('metadata').$type<{
+    parentChunkId?: string
+    childChunkIds?: string[]
+    siblingChunkIds?: string[]
+    tokens?: number
+    language?: string
+    contentType?: ContentType
+    difficulty?: Difficulty
+    // Semantic relationships
+    conceptIds?: string[]
+    entityIds?: string[]
+    topicIds?: string[]
+    // Graph analytics
+    semanticClusterId?: string
+    importanceScore?: number
+    similarityConnections?: Array<{
+      chunkId: string
+      similarity: number
+      relationshipType: string
+    }>
+    [key: string]: any
+  }>().default({}),
+  
+  // Neo4j synchronization
+  neo4jNodeId: text('neo4j_node_id').notNull().unique(),
+  lastSyncedToNeo4j: timestamp('last_synced_to_neo4j').defaultNow(),
+  neo4jVersion: integer('neo4j_version').default(1),
+  
+  // Graph relationship counts
+  semanticRelationshipCount: integer('semantic_relationship_count').default(0),
+  entityRelationshipCount: integer('entity_relationship_count').default(0),
+  
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => ([
+  index('graph_chunks_document_idx').on(table.documentId),
+  index('graph_chunks_neo4j_node_id_idx').on(table.neo4jNodeId),
+  index('graph_chunks_embedding_cosine_idx').using('hnsw', table.embedding.op('vector_cosine_ops')),
+  index('graph_chunks_granularity_idx').on(table.granularity),
+  index('graph_chunks_semantic_cluster_idx').on(table.metadata),
+  index('graph_chunks_sync_idx').on(table.lastSyncedToNeo4j),
+]))
+
+// Graph-optimized entities table
+export const graphEntities = graphPublicSchema.table('entities', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  
+  // Entity information
+  entityId: text('entity_id').notNull().unique(),
+  entityType: entityTypeEnum('entity_type').notNull(),
+  entityName: text('entity_name').notNull(),
+  
+  // Vector representation of entity
+  embedding: vector('embedding', { dimensions: 1536 }),
+  
+  // Enhanced graph metadata
+  metadata: jsonb('metadata').$type<{
+    aliases?: string[]
+    description?: string
+    confidence?: number
+    extractedFrom?: string[]
+    // Additional graph properties
+    importance?: number
+    centrality?: number
+    clusterId?: string
+    // Domain-specific properties
+    domainSpecific?: {
+      [domain: string]: any
+    }
+    // Graph analytics
+    pageRank?: number
+    betweennessCentrality?: number
+    clusteringCoefficient?: number
+    [key: string]: any
+  }>().default({}),
+  
+  // Neo4j synchronization
+  neo4jNodeId: text('neo4j_node_id').notNull().unique(),
+  lastSyncedToNeo4j: timestamp('last_synced_to_neo4j').defaultNow(),
+  neo4jVersion: integer('neo4j_version').default(1),
+  
+  // Graph statistics (denormalized for performance)
+  incomingRelationCount: integer('incoming_relation_count').default(0),
+  outgoingRelationCount: integer('outgoing_relation_count').default(0),
+  totalMentionCount: integer('total_mention_count').default(0),
+  
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => ([
+  index('graph_entities_entity_id_idx').on(table.entityId),
+  index('graph_entities_type_idx').on(table.entityType),
+  index('graph_entities_neo4j_node_id_idx').on(table.neo4jNodeId),
+  index('graph_entities_embedding_idx').using('hnsw', table.embedding.op('vector_cosine_ops')),
+  index('graph_entities_importance_idx').on(table.metadata),
+  index('graph_entities_sync_idx').on(table.lastSyncedToNeo4j),
+]))
+
+// Graph relationships table for complex relationship tracking
+export const graphRelationships = graphPublicSchema.table('relationships', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  
+  sourceEntityId: text('source_entity_id').references(() => graphEntities.entityId, { onDelete: 'cascade' }).notNull(),
+  targetEntityId: text('target_entity_id').references(() => graphEntities.entityId, { onDelete: 'cascade' }).notNull(),
+  
+  relationshipType: text('relationship_type').notNull(),
+  relationshipStrength: real('relationship_strength').default(1.0),
+  confidence: real('confidence').default(1.0),
+  
+  // Enhanced relationship properties
+  metadata: jsonb('metadata').$type<{
+    extractedFrom?: string[]
+    bidirectional?: boolean
+    temporal?: {
+      validFrom?: string
+      validTo?: string
+    }
+    context?: string[]
+    evidence?: Array<{
+      sourceId: string
+      confidence: number
+      extractionMethod: string
+    }>
+    [key: string]: any
+  }>().default({}),
+  
+  // Neo4j synchronization
+  neo4jRelationshipId: text('neo4j_relationship_id').notNull().unique(),
+  lastSyncedToNeo4j: timestamp('last_synced_to_neo4j').defaultNow(),
+  neo4jVersion: integer('neo4j_version').default(1),
+  
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => ([
+  index('graph_rels_source_idx').on(table.sourceEntityId),
+  index('graph_rels_target_idx').on(table.targetEntityId),
+  index('graph_rels_type_idx').on(table.relationshipType),
+  index('graph_rels_neo4j_id_idx').on(table.neo4jRelationshipId),
+  index('graph_rels_strength_idx').on(table.relationshipStrength),
+  index('graph_rels_sync_idx').on(table.lastSyncedToNeo4j),
+  index('graph_rels_composite_idx').on(table.sourceEntityId, table.targetEntityId, table.relationshipType),
+]))
+
+// Database synchronization tracking
+export const databaseSyncLog = graphPublicSchema.table('database_sync_log', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  
+  operation: text('operation').notNull(), // 'create', 'update', 'delete', 'sync'
+  entityType: text('entity_type').notNull(), // 'document', 'chunk', 'entity', 'relationship'
+  entityId: text('entity_id').notNull(),
+  
+  postgresData: jsonb('postgres_data'),
+  neo4jData: jsonb('neo4j_data'),
+  
+  syncDirection: text('sync_direction').notNull(), // 'postgres_to_neo4j', 'neo4j_to_postgres', 'bidirectional'
+  syncStatus: text('sync_status').notNull(), // 'pending', 'success', 'failed', 'conflict'
+  
+  errorMessage: text('error_message'),
+  conflictResolution: text('conflict_resolution'), // 'postgres_wins', 'neo4j_wins', 'merge', 'manual'
+  
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  processedAt: timestamp('processed_at'),
+}, (table) => ([
+  index('sync_log_entity_type_idx').on(table.entityType),
+  index('sync_log_entity_id_idx').on(table.entityId),
+  index('sync_log_status_idx').on(table.syncStatus),
+  index('sync_log_created_at_idx').on(table.createdAt),
+  index('sync_log_direction_idx').on(table.syncDirection),
+]))
+
+// ============================================================================
+// Retrieval Analytics and Optimization (Public Schema)
+// ============================================================================
+
+export const retrievalSessions = publicSchema.table('retrieval_sessions', {
   id: uuid('id').primaryKey().defaultRandom(),
   
   query: text('query').notNull(),
@@ -243,11 +520,16 @@ export const retrievalSessions = pgTable('retrieval_sessions', {
   topK: integer('top_k').notNull(),
   granularity: granularityEnum('granularity').notNull(),
   
+  // Database routing information
+  usedDatabase: text('used_database').notNull(), // 'postgres', 'neo4j', 'hybrid'
+  graphTraversalDepth: integer('graph_traversal_depth'), // For graph queries
+  
   // Performance metrics
   latencyMs: integer('latency_ms'),
   embeddingGenTime: integer('embedding_gen_time_ms'),
   retrievalTime: integer('retrieval_time_ms'),
   rerankingTime: integer('reranking_time_ms'),
+  graphTraversalTime: integer('graph_traversal_time_ms'), // For Neo4j queries
   
   // Quality metrics
   resultsReturned: integer('results_returned'),
@@ -257,6 +539,8 @@ export const retrievalSessions = pgTable('retrieval_sessions', {
     modelUsed?: string
     clientId?: string
     sessionId?: string
+    neo4jQueries?: string[]
+    postgresQueries?: string[]
     [key: string]: any
   }>().default({}),
   
@@ -266,14 +550,32 @@ export const retrievalSessions = pgTable('retrieval_sessions', {
   index('retrieval_strategy_idx').on(table.strategy),
   index('retrieval_difficulty_idx').on(table.queryDifficulty),
   index('retrieval_created_at_idx').on(table.createdAt),
+  index('retrieval_used_database_idx').on(table.usedDatabase),
 ]))
 
-export const retrievalResults = pgTable('retrieval_results', {
+export const retrievalResults = publicSchema.table('retrieval_results', {
   id: uuid('id').primaryKey().defaultRandom(),
   sessionId: uuid('session_id').references(() => retrievalSessions.id, { onDelete: 'cascade' }).notNull(),
   
+  // Result content - supporting both traditional and graph sources
+  resultType: text('result_type').notNull(), // 'chunk', 'document', 'entity', 'relationship'
+  sourceId: uuid('source_id').notNull(), // ID of the source item
+  sourceTable: text('source_table').notNull(), // 'document_chunks', 'documents', 'graph_entities', etc.
+  sourceSchema: text('source_schema').notNull().default('public'), // 'public', 'graph_public'
+  
+  // Traditional references (nullable for backward compatibility)
   chunkId: uuid('chunk_id').references(() => documentChunks.id, { onDelete: 'cascade' }),
   entityId: text('entity_id').references(() => knowledgeGraph.entityId, { onDelete: 'cascade' }),
+  
+  // Database source information
+  sourceDatabase: text('source_database').notNull(), // 'postgres', 'neo4j'
+  neo4jNodeId: text('neo4j_node_id'), // If sourced from Neo4j
+  graphPath: jsonb('graph_path').$type<{
+    nodeIds?: string[]
+    relationshipTypes?: string[]
+    pathLength?: number
+    [key: string]: any
+  }>(), // Graph traversal path for graph results
   
   // Scoring information
   denseScore: real('dense_score'),
@@ -293,6 +595,8 @@ export const retrievalResults = pgTable('retrieval_results', {
   index('retrieval_results_session_idx').on(table.sessionId),
   index('retrieval_results_score_idx').on(table.finalScore),
   index('retrieval_results_rank_idx').on(table.rank),
+  index('retrieval_results_source_idx').on(table.sourceId, table.sourceTable),
+  index('retrieval_results_database_idx').on(table.sourceDatabase),
 ]))
 
 // ============================================================================

@@ -1,8 +1,8 @@
+import { build } from 'bun'
+import tailwindPlugin from 'bun-plugin-tailwind'
 import { existsSync, mkdirSync } from 'node:fs'
 import { readdir, rename, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { build } from 'bun'
-import tailwindPlugin from 'bun-plugin-tailwind'
 
 /**
  * Builds the client-side JavaScript with a dynamic filename

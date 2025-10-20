@@ -5,7 +5,6 @@
 
 import { Elysia, t } from 'elysia'
 import type { WebhookManager } from '../core/webhooks'
-import type { Container } from '../core/container'
 
 export function createWebhookRoutes(app: Elysia) {
   return app
@@ -33,7 +32,19 @@ export function createWebhookRoutes(app: Elysia) {
         'tool.executed',
         'memory.updated',
         'conversation.started',
-        'conversation.ended'
+        'conversation.ended',
+        'mcp.server.started',
+        'mcp.server.stopped',
+        'mcp.server.error',
+        'mcp.server.restarted',
+        'mcp.tool.called',
+        'mcp.tool.completed',
+        'mcp.tool.error',
+        'mcp.prompt.called',
+        'mcp.prompt.completed',
+        'mcp.resource.accessed',
+        'mcp.agent.created',
+        'mcp.agent.updated'
       ]
     }), {
       detail: {

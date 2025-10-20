@@ -1,5 +1,17 @@
 # AI Agents Server - Quick Start Guide
 
+**Advanced AI Agent Server with OpenAI, Vercel AI SDK, RAG, and Model Context Protocol (MCP) Support**
+
+## Features
+
+- 🤖 **OpenAI & Vercel AI SDK Integration** - Support for multiple AI frameworks
+- 🔧 **Model Context Protocol (MCP)** - Connect agents to external tools and data sources
+- 🧠 **RAG System** - Advanced retrieval-augmented generation with multiple strategies
+- 🔄 **Real-time WebSocket Events** - Monitor agent activities in real-time
+- 📊 **Interactive Dashboard** - Beautiful React + TailwindCSS dashboard with SSR
+- 🛠️ **Extensible Architecture** - Easy to add custom tools and providers
+- 📈 **Feature-Organized Statistics** - Separate stats for OpenAI, Vercel AI, and MCP
+
 ## Prerequisites
 
 - Bun runtime environment
@@ -64,12 +76,47 @@ ws.onmessage = (event) => {
 
 ## Available Endpoints
 
+### Core APIs
+
+- **Dashboard**: `GET /` - Server overview, features, and statistics
+- **API Info**: `GET /api` - API capabilities
+- **Documentation**: `GET /docs` - Interactive Swagger API docs
+
+### Statistics (Feature-Organized)
+
+- **Complete Stats**: `GET /stats` - All system statistics
+- **OpenAI Stats**: `GET /stats/openai` - OpenAI SDK usage and metrics
+- **Vercel AI Stats**: `GET /stats/ai` - Vercel AI SDK metrics (coming soon)
+- **MCP Stats**: `GET /stats/mcp` - MCP servers and tool execution metrics
+
 ### OpenAI Agents API
 
 - **Dashboard**: `GET /v1/openai/`
 - **Create Agent**: `POST /v1/openai/agents`
 - **Chat**: `POST /v1/openai/chat/completions`
 - **List Tools**: `GET /v1/openai/tools`
+
+### Vercel AI SDK
+
+- **Dashboard**: `GET /v1/ai/`
+- **Streaming Chat**: `POST /v1/ai/chat/stream`
+
+### RAG System
+
+- **Retrieve**: `POST /v1/rag/retrieve`
+- **Adaptive Retrieval**: `POST /v1/rag/adaptive`
+- **Documents**: `POST /v1/rag/documents`
+- **Health**: `GET /v1/rag/health`
+
+### Model Context Protocol (MCP) 🆕
+
+- **MCP Dashboard**: `GET /api/mcp/`
+- **Start Server**: `POST /api/mcp/servers`
+- **List Tools**: `GET /api/mcp/tools`
+- **Execute Tool**: `POST /api/mcp/tools/execute`
+- **Create MCP Agent**: `POST /api/mcp/agents`
+- **Statistics**: `GET /mcp/stats`
+- **Documentation**: `GET /mcp/docs`
 
 ### Management
 
@@ -169,6 +216,57 @@ src/
 - `tool.executed`: Tool execution results
 - `memory.updated`: Memory store changes
 - `conversation.*`: Chat session events
+- `mcp.*`: Model Context Protocol events
+
+## Model Context Protocol (MCP) 🆕
+
+The server now supports the Model Context Protocol, allowing agents to connect to external tools and data sources through standardized MCP servers.
+
+### Quick Start with MCP
+
+```bash
+# 1. Start an MCP server (e.g., file system)
+curl -X POST http://localhost:3001/api/mcp/servers \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "filesystem",
+    "name": "File System",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"],
+    "autoRestart": true
+  }'
+
+# 2. Create an agent with MCP integration
+curl -X POST http://localhost:3001/api/mcp/agents \
+  -H "Content-Type: application/json" \
+  -d '{
+    "agent": {
+      "name": "File Assistant",
+      "model": {"provider": "openai", "model": "gpt-4o-mini", "config": {}},
+      "tools": [],
+      "memory": {},
+      "status": "idle"
+    },
+    "mcpServers": ["filesystem"],
+    "sdkType": "openai",
+    "autoImportTools": true
+  }'
+
+# 3. Agent now has file system tools automatically!
+```
+
+### Available MCP Servers
+
+- **File System**: Local file operations
+- **GitHub**: Repository management
+- **Brave Search**: Web search
+- **Custom**: Create your own MCP server
+
+### MCP Documentation
+
+- [Full Integration Guide](./docs/mcp-integration.md) - Comprehensive MCP documentation
+- [Developer Guide](./docs/mcp-development-guide.md) - Quick start with examples
+- [MCP Summary](./docs/MCP_SUMMARY.md) - Technical implementation overview
 
 ## Extension Points
 
@@ -224,6 +322,14 @@ const customChunking: ChunkingConfig = {
 }
 ```
 
+## Documentation
+
+- **[API Dashboard Guide](./docs/api-dashboard.md)** - Complete guide to statistics and monitoring
+- **[MCP Integration](./docs/mcp-integration.md)** - MCP architecture and API reference
+- **[MCP Development](./docs/mcp-development-guide.md)** - Quick start guide for MCP
+- **[Dual Database Architecture](./docs/dual-database-architecture.md)** - pgvector + Neo4j setup
+- **[Interactive API Docs](http://localhost:3001/docs)** - Swagger documentation (when server is running)
+
 ## Troubleshooting
 
 ### Common Issues
@@ -233,12 +339,17 @@ const customChunking: ChunkingConfig = {
    - Server will start but OpenAI features will be disabled
 
 2. **WebSocket Connection Failed**
-   - Check if port 3000 is available
+   - Check if port 3001 is available
    - Verify CORS settings for browser connections
 
 3. **Memory Store Full**
    - Increase `MEMORY_MAX_SIZE` in configuration
    - Implement periodic cleanup
+
+4. **MCP Server Not Starting**
+   - Check MCP server command is correct
+   - Verify server dependencies are installed
+   - Review `/stats/mcp` for error details
 
 ### Debug Mode
 
@@ -252,6 +363,7 @@ This enables:
 - Request/response logging
 - WebSocket message tracing
 - Memory usage reporting
+- MCP connection debugging
 
 ## Next Steps
 
@@ -271,7 +383,7 @@ This enables:
    - Embedding generation
 
 4. **Monitoring & Analytics**
-   - Metrics collection
+   - Metrics collection (see `/stats` endpoints)
    - Performance profiling
    - Error tracking
 

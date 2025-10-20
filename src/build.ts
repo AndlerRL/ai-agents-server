@@ -9,4 +9,4 @@ async function main() {
 }
 
 // Run the build
-await main()
+main()

@@ -4,47 +4,24 @@
  * Includes client build system and comprehensive RAG capabilities
  */
 
-import { existsSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { cors } from '@elysiajs/cors'
+import { swagger } from '@elysiajs/swagger'
 import type { Server, ServerWebSocket } from 'bun'
 import { serve } from 'bun'
 import { Elysia } from 'elysia'
-import { cors } from '@elysiajs/cors'
-import { swagger } from '@elysiajs/swagger'
+import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
-import { buildClient } from './lib/build-client'
-import { createSwaggerConfig } from './lib/swagger-config'
+import { config } from '~/lib/server/config'
 import { createAIAgentsState } from './core/elysia-state'
-import type { ServerConfig } from './core/types'
-import { bootstrapRagSystemWithValidation } from './rag'
+import { createMCPManager } from './core/mcp'
+import { buildClient } from './lib/build-client'
+import { dashboardRouteOptions, getDashboardDataHandler } from './lib/server/dashboard-data'
+import { createSwaggerConfig } from './lib/swagger-config'
 import type { MainRagService } from './rag'
-
-// ============================================================================
-// Server Configuration
-// ============================================================================
-
-const config: ServerConfig = {
-  environment: (process.env.NODE_ENV as 'development' | 'production') || 'development',
-  port: parseInt(process.env.PORT || '3001'),
-  
-  openai: {
-    apiKey: process.env.OPENAI_API_KEY || '',
-    baseURL: process.env.OPENAI_BASE_URL,
-    organization: process.env.OPENAI_ORGANIZATION
-  },
-  
-  memory: {
-    provider: 'memory',
-    maxSize: 100000,
-    ttl: 3600
-  },
-  
-  chunking: {
-    strategy: 'semantic',
-    chunkSize: 1000,
-    overlap: 200
-  }
-}
+import { bootstrapRagSystemWithValidation } from './rag'
+import { createDashboardRoutes } from './routes/dashboard'
+import { createMCPRoutes } from './routes/mcp'
 
 // ============================================================================
 // Client Build Helper
@@ -67,80 +44,10 @@ function getClientFilename(): string {
 // Elysia App with Routes
 // ============================================================================
 
-const app = new Elysia()
+let app = new Elysia()
   .use(cors())
   .use(swagger(createSwaggerConfig(config)))
   .use(createAIAgentsState(config))
-  
-  // Dashboard - Main page with API statistics
-  .get('/', async ({ getServerStats }: any) => {
-    const stats = getServerStats()
-    
-    // Get RAG system health if available
-    let ragHealth = null
-    if (ragService) {
-      try {
-        ragHealth = await ragService.healthCheck()
-      } catch (error) {
-        ragHealth = { status: 'unhealthy', error: 'Health check failed' }
-      }
-    }
-    
-    return {
-      title: 'AI Agents Server Dashboard',
-      description: 'Real-time API usage statistics and server monitoring with RAG capabilities',
-      version: '1.0.0',
-      uptime: Math.floor(stats.uptime || 0),
-      statistics: {
-        totalRequests: stats.requests || 0,
-        activeAgents: stats.agents || 0,
-        totalTokensUsed: stats.tokensUsed || 0,
-        averageResponseTime: stats.averageResponseTime || 0,
-        errorRate: stats.errorRate || 0,
-        activeConnections: stats.connections || 0,
-        webhookSubscriptions: 0 // This would come from webhook manager
-      },
-      health: {
-        status: 'healthy',
-        openaiEnabled: stats.features?.openaiEnabled || false,
-        ragEnabled: !!ragService,
-        ragStatus: ragHealth?.status || 'disabled',
-        debugMode: stats.features?.debugMode || false,
-        lastUpdate: new Date().toISOString()
-      },
-      endpoints: {
-        api: '/api',
-        docs: '/docs',
-        openai: '/v1/openai/*',
-        ai: '/v1/ai/*',
-        rag: '/v1/rag/*',
-        webhooks: '/webhooks/ws'
-      },
-      ragSystem: ragService ? {
-        enabled: true,
-        status: ragHealth?.status || 'unknown',
-        strategies: [
-          'retrieve_read',
-          'hybrid', 
-          'two_stage_rerank',
-          'fusion_in_decoder',
-          'augmented_reranking',
-          'federated',
-          'graph_rag',
-          'adaptive'
-        ]
-      } : {
-        enabled: false,
-        reason: 'RAG system not initialized - check DATABASE_URL and dependencies'
-      }
-    }
-  }, {
-    detail: {
-      tags: ['Introduction'],
-      summary: 'Server dashboard',
-      description: 'Real-time dashboard with API usage statistics, server health, RAG system status, and endpoint information'
-    }
-  })
   
   // API Information endpoint
   .get('/api', () => ({
@@ -151,6 +58,7 @@ const app = new Elysia()
       openai: '/v1/openai/*',
       ai: '/v1/ai/*',
       rag: '/v1/rag/*',
+      mcp: '/api/mcp/*',
       webhooks: '/webhooks/ws',
       docs: '/docs'
     },
@@ -160,7 +68,9 @@ const app = new Elysia()
       'RAG with multiple strategies',
       'Real-time WebSocket events',
       'pgvector database support',
-      'Adaptive retrieval granularity'
+      'Adaptive retrieval granularity',
+      'Model Context Protocol (MCP) servers',
+      'MCP tool execution and prompts'
     ]
   }), {
     detail: {
@@ -349,6 +259,9 @@ const app = new Elysia()
 
 // Initialize RAG system
 let ragService: MainRagService
+
+// Initialize MCP Manager
+const mcpManager = createMCPManager()
 
 // Add RAG routes
 app.group('/v1/rag', (app) => app
@@ -649,6 +562,33 @@ app.group('/v1/rag', (app) => app
 )
 
 // ============================================================================
+// MCP Routes Integration
+// ============================================================================
+
+const mcpRoutes = createMCPRoutes(new Elysia())
+app.group('/api/mcp', (app) => app.use(mcpRoutes.decorate('mcpManager', mcpManager)))
+
+// ============================================================================
+// Dashboard Routes Integration  
+// ============================================================================
+
+// Dashboard routes are added directly to app since they need access to derived state
+app = app
+  .decorate('mcpManager', mcpManager)
+  .get('/', getDashboardDataHandler, dashboardRouteOptions)
+  .get('/dashboard', getDashboardDataHandler, {
+    detail: {
+      tags: ['Dashboard'],
+      summary: 'Interactive React dashboard UI (alias)',
+      description: 'Alternative route to access the server-side rendered React dashboard'
+    }
+  })
+
+// Add other dashboard routes (stats, agents, etc.)
+const dashboardDataRoutes = createDashboardRoutes(new Elysia())
+app = app.use(dashboardDataRoutes.decorate('mcpManager', mcpManager))
+
+// ============================================================================
 // WebSocket Interface
 // ============================================================================
 
@@ -726,17 +666,8 @@ async function startServer() {
         return await app.handle(swaggerRequest)
       }
 
-      // Serve static files from /public
-      if (url.pathname.startsWith('/public/') || url.pathname === '/favicon.ico') {
-        const publicPath = join(process.cwd(), 'public', url.pathname.replace('/public/', ''))
-        if (existsSync(publicPath)) {
-          const file = Bun.file(publicPath)
-          return new Response(file)
-        }
-      }
-
-      // Serve client JavaScript files
-      if (url.pathname.startsWith('/client') && url.pathname.endsWith('.js')) {
+      // Serve static files from public directory (CSS and JS)
+      if (url.pathname.startsWith('/client')) {
         try {
           const requestedFile = url.pathname.replace(/^\/+/, '')
           const publicDir = join(process.cwd(), 'public')
@@ -747,32 +678,39 @@ async function startServer() {
             return new Response('Forbidden', { status: 403 })
           }
 
+          // Determine content type based on file extension
+          const contentType = url.pathname.endsWith('.css') 
+            ? 'text/css' 
+            : 'application/javascript'
+
           if (existsSync(specificFilePath)) {
             const file = Bun.file(specificFilePath)
             return new Response(file, {
               headers: {
-                'Content-Type': 'application/javascript',
+                'Content-Type': contentType,
                 'Cache-Control': 'max-age=3600',
               },
             })
           }
 
-          // Fallback to current client file
-          const currentClientJs = getClientFilename()
-          const filePath = join(publicDir, currentClientJs)
-          if (existsSync(filePath)) {
-            const file = Bun.file(filePath)
-            return new Response(file, {
-              headers: {
-                'Content-Type': 'application/javascript',
-                'Cache-Control': 'max-age=3600',
-              },
-            })
+          // Fallback to current client JS file for .js requests
+          if (url.pathname.endsWith('.js')) {
+            const currentClientJs = getClientFilename()
+            const filePath = join(publicDir, currentClientJs)
+            if (existsSync(filePath)) {
+              const file = Bun.file(filePath)
+              return new Response(file, {
+                headers: {
+                  'Content-Type': 'application/javascript',
+                  'Cache-Control': 'max-age=3600',
+                },
+              })
+            }
           }
 
-          return new Response('Client file not found', { status: 404 })
+          return new Response('File not found', { status: 404 })
         } catch (error) {
-          console.error('Error serving client file:', error)
+          console.error('Error serving static file:', error)
           return new Response('File not found', { status: 404 })
         }
       }
@@ -858,6 +796,10 @@ async function startServer() {
     console.log('⚠️  RAG system disabled (initialization failed)')
   }
   
+  console.log('✅ MCP system enabled for external tool integration')
+  console.log(`🔧 MCP endpoints available at http://localhost:${server.port}/api/mcp/*`)
+  console.log(`📖 MCP documentation at http://localhost:${server.port}/mcp/docs`)
+  
   console.log('🟢 Server ready to accept connections!')
   
   return server
@@ -871,4 +813,5 @@ if (config.environment !== 'test') {
   })
 }
 
-export { startServer, app }
+export { app, startServer }
+

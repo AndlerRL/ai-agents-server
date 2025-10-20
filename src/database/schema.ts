@@ -5,15 +5,16 @@
  * Supports dual-database operation with Neo4j integration
  */
 
-import { pgTable, uuid, text, timestamp, jsonb, integer, real, index, customType, pgEnum, pgSchema } from 'drizzle-orm/pg-core'
 import { relations } from 'drizzle-orm'
+import { customType, index, integer, jsonb, pgEnum, pgSchema, pgTable, real, text, timestamp, uuid } from 'drizzle-orm/pg-core'
 
 // ============================================================================
 // Database Schemas for Multi-Database Support
 // ============================================================================
 
 // Public schema - traditional relational data with basic graph support
-export const publicSchema = pgSchema('public')
+// @ts-ignore
+export const publicSchema = pgSchema()
 
 // Graph public schema - optimized for graph operations and Neo4j sync
 export const graphPublicSchema = pgSchema('graph_public')

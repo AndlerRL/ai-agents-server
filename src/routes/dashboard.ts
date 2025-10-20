@@ -4,56 +4,18 @@
  */
 
 import { Elysia, t } from 'elysia'
+import { dashboardRouteOptions, getDashboardDataHandler } from '~/lib/server/dashboard-data'
+import type { Container } from '../core/container'
 import type { ServerStateManager } from '../core/state'
 import type { WebhookManager } from '../core/webhooks'
-import type { Container } from '../core/container'
 
 export function createDashboardRoutes(app: Elysia) {
   return app
-    .get('/', (context) => {
-      try {
-        const state = (context as any).state as ServerStateManager
-        const webhooks = (context as any).webhooks as WebhookManager
-        
-        const serverHealth = state.getHealthCheck()
-        const webhookStats = webhooks.getStatistics()
-        const stateSnapshot = state.getStateSnapshot()
-        
-        return {
-          title: 'AI Agents Server Dashboard',
-          timestamp: new Date().toISOString(),
-          uptime: process.uptime(),
-          memory: process.memoryUsage(),
-          health: serverHealth,
-          statistics: {
-            server: stateSnapshot.statistics,
-            webhooks: webhookStats
-          },
-          agents: {
-            total: stateSnapshot.agents.size,
-            active: Array.from(stateSnapshot.agents.values())
-              .filter(agent => agent.status === 'processing').length,
-            idle: Array.from(stateSnapshot.agents.values())
-              .filter(agent => agent.status === 'idle').length
-          },
-          connections: {
-            websockets: stateSnapshot.activeConnections.size,
-            webhookSubscriptions: webhookStats.totalSubscriptions
-          }
-        }
-      } catch (error) {
-        return {
-          success: false,
-          error: `Failed to get dashboard data: ${error}`
-        }
-      }
-    }, {
-      detail: {
-        tags: ['Dashboard'],
-        summary: 'Main dashboard',
-        description: 'Get comprehensive server statistics and health information'
-      }
-    })
+    // Dashboard - HTML UI with real-time statistics
+    .get('/', getDashboardDataHandler, dashboardRouteOptions)
+  
+    // Dashboard alias route
+    .get('/dashboard', getDashboardDataHandler, dashboardRouteOptions)
 
     .get('/agents', (context) => {
       try {
@@ -92,40 +54,59 @@ export function createDashboardRoutes(app: Elysia) {
       }
     })
 
-    .get('/statistics', (context) => {
+    .get('/stats', (context) => {
       try {
         const state = (context as any).state as ServerStateManager
         const webhooks = (context as any).webhooks as WebhookManager
+        const mcpManager = (context as any).mcpManager
+
+        if (!state) {
+          console.error('❌ serverState is undefined in dashboard handler')
+          return 'Error: Server state not available'
+        }
         
         const stateSnapshot = state.getStateSnapshot()
         const webhookStats = webhooks.getStatistics()
+        const mcpStats = mcpManager ? mcpManager.getStatistics() : null
+        
+        const agents = Array.from(stateSnapshot.agents.values())
         
         return {
           success: true,
           data: {
             server: {
-              ...stateSnapshot.statistics,
               uptime: process.uptime(),
-              memory: process.memoryUsage()
+              memory: process.memoryUsage(),
+              requests: stateSnapshot.statistics.totalRequests,
+              avgResponseTime: stateSnapshot.statistics.averageResponseTime,
+              errorRate: stateSnapshot.statistics.errorRate,
+              tokensUsed: stateSnapshot.statistics.totalTokensUsed
+            },
+            agents: {
+              total: agents.length,
+              byStatus: {
+                processing: agents.filter(a => a.status === 'processing').length,
+                idle: agents.filter(a => a.status === 'idle').length,
+                error: agents.filter(a => a.status === 'error').length
+              },
+              byProvider: {
+                openai: agents.filter(a => a.model.provider === 'openai').length,
+                custom: agents.filter(a => a.model.provider === 'custom').length,
+                anthropic: agents.filter(a => a.model.provider === 'anthropic').length
+              },
+              byModel: agents.reduce((acc, agent) => {
+                const model = agent.model.model
+                acc[model] = (acc[model] || 0) + 1
+                return acc
+              }, {} as Record<string, number>)
             },
             webhooks: webhookStats,
-            agents: {
-              total: stateSnapshot.agents.size,
-              byStatus: {
-                processing: Array.from(stateSnapshot.agents.values())
-                  .filter(a => a.status === 'processing').length,
-                idle: Array.from(stateSnapshot.agents.values())
-                  .filter(a => a.status === 'idle').length,
-                error: Array.from(stateSnapshot.agents.values())
-                  .filter(a => a.status === 'error').length
-              },
-              byModel: Array.from(stateSnapshot.agents.values())
-                .reduce((acc, agent) => {
-                  const model = agent.model.model
-                  acc[model] = (acc[model] || 0) + 1
-                  return acc
-                }, {} as Record<string, number>)
-            }
+            mcp: mcpStats || { enabled: false }
+          },
+          links: {
+            openai: '/stats/openai',
+            vercel: '/stats/ai',
+            mcp: '/stats/mcp'
           }
         }
       } catch (error) {
@@ -137,8 +118,157 @@ export function createDashboardRoutes(app: Elysia) {
     }, {
       detail: {
         tags: ['Dashboard'],
-        summary: 'Server statistics',
-        description: 'Get detailed server and agent statistics'
+        summary: 'Complete server statistics',
+        description: 'Get comprehensive statistics including all features (server, agents, webhooks, MCP)'
+      }
+    })
+
+    .get('/stats/openai', (context) => {
+      try {
+        const state = (context as any).state as ServerStateManager
+        const stateSnapshot = state.getStateSnapshot()
+        
+        const allAgents = Array.from(stateSnapshot.agents.values())
+        const openaiAgents = allAgents.filter(a => a.model.provider === 'openai')
+        
+        return {
+          success: true,
+          data: {
+            enabled: Boolean(process.env.OPENAI_API_KEY),
+            agents: {
+              total: openaiAgents.length,
+              active: openaiAgents.filter(a => a.status === 'processing').length,
+              idle: openaiAgents.filter(a => a.status === 'idle').length,
+              byModel: openaiAgents.reduce((acc, agent) => {
+                const model = agent.model.model
+                acc[model] = (acc[model] || 0) + 1
+                return acc
+              }, {} as Record<string, number>)
+            },
+            usage: {
+              totalTokens: stateSnapshot.statistics.totalTokensUsed,
+              avgResponseTime: stateSnapshot.statistics.averageResponseTime,
+              totalRequests: openaiAgents.reduce((sum, a) => sum + ((a as any).requestCount || 0), 0)
+            },
+            models: [...new Set(openaiAgents.map(a => a.model.model))],
+            tools: {
+              total: [...new Set(openaiAgents.flatMap(a => a.tools.map(t => t.name)))].length,
+              byAgent: openaiAgents.map(a => ({
+                id: a.id,
+                name: a.name,
+                tools: a.tools.length
+              }))
+            }
+          }
+        }
+      } catch (error) {
+        return {
+          success: false,
+          error: `Failed to get OpenAI statistics: ${error}`
+        }
+      }
+    }, {
+      detail: {
+        tags: ['Dashboard', 'OpenAI'],
+        summary: 'OpenAI SDK statistics',
+        description: 'Get detailed statistics for OpenAI SDK agents and usage'
+      }
+    })
+
+    .get('/stats/ai', (context) => {
+      try {
+        const state = (context as any).state as ServerStateManager
+        const stateSnapshot = state.getStateSnapshot()
+        
+        const allAgents = Array.from(stateSnapshot.agents.values())
+        const customAgents = allAgents.filter(a => a.model.provider === 'custom')
+        
+        return {
+          success: true,
+          data: {
+            enabled: customAgents.length > 0,
+            status: 'Coming Soon',
+            agents: {
+              total: customAgents.length,
+              active: customAgents.filter(a => a.status === 'processing').length,
+              idle: customAgents.filter(a => a.status === 'idle').length
+            },
+            note: 'Vercel AI SDK integration is an expansion point for future development'
+          }
+        }
+      } catch (error) {
+        return {
+          success: false,
+          error: `Failed to get Vercel AI statistics: ${error}`
+        }
+      }
+    }, {
+      detail: {
+        tags: ['Dashboard', 'Vercel AI'],
+        summary: 'Vercel AI SDK statistics',
+        description: 'Get statistics for Vercel AI SDK agents (coming soon)'
+      }
+    })
+
+    .get('/stats/mcp', (context) => {
+      try {
+        const state = (context as any).state as ServerStateManager
+        const mcpManager = (context as any).mcpManager
+        
+        if (!mcpManager) {
+          return {
+            success: false,
+            error: 'MCP system not enabled'
+          }
+        }
+        
+        const mcpStats = mcpManager.getStatistics()
+        const stateSnapshot = state.getStateSnapshot()
+        const allAgents = Array.from(stateSnapshot.agents.values())
+        const mcpAgents = allAgents.filter(a => (a as any).mcpServers?.length > 0)
+        
+        return {
+          success: true,
+          data: {
+            enabled: true,
+            servers: {
+              total: mcpStats.totalServers,
+              active: mcpStats.activeServers,
+              ready: mcpStats.readyServers,
+              error: mcpStats.errorServers,
+              byStatus: mcpStats.serversByStatus
+            },
+            tools: {
+              total: mcpStats.totalTools,
+              executed: mcpStats.toolExecutions,
+              avgExecutionTime: mcpStats.avgToolExecutionTime,
+              errorRate: mcpStats.toolErrorRate
+            },
+            agents: {
+              total: mcpAgents.length,
+              withMCP: mcpAgents.length,
+              avgServersPerAgent: mcpAgents.length > 0 
+                ? mcpAgents.reduce((sum, a) => sum + ((a as any).mcpServers?.length || 0), 0) / mcpAgents.length 
+                : 0
+            },
+            performance: {
+              avgConnectionTime: mcpStats.avgConnectionTime,
+              totalRestarts: mcpStats.totalRestarts,
+              uptime: mcpStats.uptime
+            }
+          }
+        }
+      } catch (error) {
+        return {
+          success: false,
+          error: `Failed to get MCP statistics: ${error}`
+        }
+      }
+    }, {
+      detail: {
+        tags: ['Dashboard', 'MCP'],
+        summary: 'MCP system statistics',
+        description: 'Get detailed statistics for MCP servers, tools, and MCP-enabled agents'
       }
     })
 

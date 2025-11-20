@@ -1,7 +1,7 @@
 import { Elysia } from "elysia";
 import { renderPage } from "../../components/layout";
 
-function ChatPage() {
+export function ChatPage() {
 	return (
 		<div className="max-w-7xl mx-auto h-[calc(100vh-140px)] flex gap-6">
 			<div className="w-80 bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col">

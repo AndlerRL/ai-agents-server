@@ -2,7 +2,7 @@ import React from 'react';
 import { Elysia } from 'elysia';
 import { renderPage } from '../../components/layout';
 
-function AgentsPage() {
+export function AgentsPage() {
   return (
     <div className="max-w-7xl mx-auto">
       <header className="mb-8 flex justify-between items-center">

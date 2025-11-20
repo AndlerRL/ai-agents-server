@@ -173,10 +173,9 @@ export function Dashboard({ data }: { data: DashboardData }) {
   }, [autoRefresh])
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-indigo-50 to-pink-50 dark:from-gray-950 dark:via-purple-950 dark:to-indigo-950">
-      <div className="container mx-auto p-6 space-y-8">
-        {/* Header */}
-        <Card className="bg-white/50 backdrop-blur dark:bg-gray-900/50">
+    <div className="container mx-auto space-y-8">
+      {/* Header */}
+      <Card className="bg-white/50 backdrop-blur dark:bg-gray-900/50">
           <CardHeader>
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
@@ -194,7 +193,7 @@ export function Dashboard({ data }: { data: DashboardData }) {
                   className="text-sm px-4 py-1"
                 >
                   <span className="mr-2 h-2 w-2 rounded-full bg-current animate-pulse" />
-                  {data.health.status.toUpperCase()}
+                  {data?.health?.status?.toUpperCase()}
                 </Badge>
                 <span className="text-sm text-muted-foreground">
                   Uptime: {formatUptime(data.uptime)}
@@ -332,6 +331,5 @@ export function Dashboard({ data }: { data: DashboardData }) {
           <p>AI Agents Server v{data.version} | Made with ❤️ using Bun + Elysia + React</p>
         </div>
       </div>
-    </div>
   )
 }

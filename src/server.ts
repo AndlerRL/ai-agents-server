@@ -15,13 +15,7 @@ import { Elysia } from 'elysia';
 import { config } from '~/lib/server/config';
 import { createAIAgentsState } from './core/elysia-state';
 import { createMCPManager } from './core/mcp';
-import { getDatabaseConnection } from './database/connection';
-import * as schema from './database/schema';
 import { buildClient } from './lib/build-client';
-import {
-  dashboardRouteOptions,
-  getDashboardDataHandler,
-} from './lib/server/dashboard-data';
 import { createSwaggerConfig } from './lib/swagger-config';
 import type { MainRagService } from './rag';
 import { bootstrapRagSystemWithValidation } from './rag';
@@ -247,7 +241,7 @@ const app = new Elysia()
   .use(mcpRoutes.decorate('mcpManager', mcpManager))
 
   // Dashboard Routes Integration
-  .get('/', getDashboardDataHandler, dashboardRouteOptions)
+  .use(dashboardPageRoutes)
   .use(dashboardDataRoutes.decorate('mcpManager', mcpManager));
 
 // ============================================================================
@@ -347,7 +341,7 @@ async function startServer() {
       }
 
       // Serve client JavaScript files
-      if (url.pathname.startsWith('/client') && url.pathname.endsWith('.js')) {
+      if (url.pathname.startsWith('/client')) {
         try {
           const requestedFile = url.pathname.replace(/^\/+/, '');
           const publicDir = join(process.cwd(), 'public');

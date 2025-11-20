@@ -1,5 +1,4 @@
 import { DashboardData } from '~/components/dashboard';
-import { dashboardPageRoutes } from '~/routes/pages/dashboard';
 import { config } from '~/lib/server/config';
 
 export async function getDashboardDataHandler(context: any) {
@@ -68,7 +67,7 @@ export async function getDashboardDataHandler(context: any) {
     },
   };
 
-  return dashboardPageRoutes(dashboardData);
+  return dashboardData;
 }
 
 export const dashboardRouteOptions = {

@@ -2,7 +2,7 @@ import { Elysia } from "elysia";
 import React from "react";
 import { renderPage } from "../../components/layout";
 
-function CanvasPage() {
+export function CanvasPage() {
 	return (
 		<div className="max-w-7xl mx-auto">
 			<header className="mb-8">

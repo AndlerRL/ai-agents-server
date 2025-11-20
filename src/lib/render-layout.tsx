@@ -19,9 +19,8 @@ export function getClientFilename(): string {
   return 'client.js'
 }
 
-export function renderDashboard(data: DashboardData): string {
+export function renderLayout(layoutString: string, data: Record<string, unknown>): string {
   const clientFilename = getClientFilename()
-  const appHtml = renderToString(<Dashboard data={data} />)
   
   return `<!DOCTYPE html>
 <html lang="en">
@@ -31,12 +30,11 @@ export function renderDashboard(data: DashboardData): string {
   <title>${data.title}</title>
   <link rel="stylesheet" href="/client.css">
   <script>
-    // Inject dashboard data for client-side hydration
-    window.__DASHBOARD_DATA__ = ${JSON.stringify(data)};
+    window.__AC_DATA__ = ${JSON.stringify(data)};
   </script>
 </head>
 <body class="dark">
-  <div id="root">${appHtml}</div>
+  <div id="root">${layoutString}</div>
   <script type="module" src="/${clientFilename}"></script>
 </body>
 </html>`

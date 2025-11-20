@@ -1,7 +1,7 @@
 import { Elysia } from 'elysia';
 import { renderPage } from '../../components/layout';
 
-function NodesLayout({ children, activeTab }: { children: any, activeTab: string }) {
+export function NodesLayout({ children, activeTab }: { children: any, activeTab: string }) {
   const tabs = [
     { id: 'retrieval', label: 'Retrieval', href: '/nodes' },
     { id: 'adaptive', label: 'Adaptive', href: '/nodes/adaptive' },
@@ -39,7 +39,7 @@ function NodesLayout({ children, activeTab }: { children: any, activeTab: string
   );
 }
 
-function RetrievalView() {
+export function RetrievalView() {
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
       <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
@@ -81,7 +81,7 @@ function RetrievalView() {
   );
 }
 
-function AdaptiveView() {
+export function AdaptiveView() {
   return (
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
       <div className="p-6 border-b border-slate-100">
@@ -116,7 +116,7 @@ function AdaptiveView() {
   );
 }
 
-function DocumentsView() {
+export function DocumentsView() {
   return (
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
       <div className="p-4 border-b border-slate-100 flex justify-between items-center">
